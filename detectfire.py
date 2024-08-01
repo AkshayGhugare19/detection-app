@@ -28,13 +28,17 @@ AWS_SECRET_KEY = 'test'
 S3_BUCKET_NAME = 'test'
 
 # Initialize the S3 client
-s3_client = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)
-
-def upload_to_s3(file_name, bucket, object_name=None):
+# s3_client = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY,)
+# Initialize S3 client 
+s3_client = boto3.client('s3',
+                         aws_access_key_id=AWS_ACCESS_KEY,
+                         aws_secret_access_key=AWS_SECRET_KEY)
+def upload_to_s3(file_name, S3_BUCKET_NAME, object_name=None):
     try:
-        s3_client.upload_file(file_name, bucket, object_name or file_name)
-        print(f"Upload Successful: {file_name} to {bucket}")
-        s3_url = f"https://{bucket}.s3.amazonaws.com/{object_name or file_name}"
+        s3_client.upload_file(file_name, S3_BUCKET_NAME, object_name, ExtraArgs={'ACL': 'public-read'})
+        # s3_client.upload_file(file_name, bucket, object_name or file_name)
+        print(f"Upload Successful: {file_name} to {S3_BUCKET_NAME}")
+        s3_url = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{object_name or file_name}"
         return s3_url
     except FileNotFoundError:
         print(f"The file was not found: {file_name}")
@@ -209,7 +213,7 @@ def save_detected_video_and_image(detected_type, detected_frame):
         print(f"Video uploaded to S3: {video_url}")
         add_analytics(detected_type, video_url, image_url)
 
-
+        
 def process_frame(frame):
     detection_made = False
     detected_type = None
@@ -411,7 +415,7 @@ def get_weapon():
 
 @app.route('/get-analytics-by/<int:id>', methods=['GET'])
 def get_weapon_by_id(id):
-    select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = 'weapon' AND id = %s"
+    select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type IN ('weapon', 'fire', 'number_plate') AND id = %s"
     cursor.execute(select_query, (id,))
     record = cursor.fetchone()
     if record:
