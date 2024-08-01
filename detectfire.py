@@ -16,7 +16,10 @@ import boto3
 from datetime import datetime
 
 from botocore.exceptions import NoCredentialsError
-
+from flask import Flask, jsonify, Response, render_template_string
+from flask_cors import CORS
+import cv2
+import json
 
 
 # AWS S3 Configuration
@@ -85,7 +88,7 @@ fire_model = YOLO('fire_model.pt')
 number_plate_model = YOLO('license_plate_detector.pt')
 
 # Initialize video capture
-stream_url = "https://192.168.1.5:8080/video"
+stream_url = 0
 cap = cv2.VideoCapture(stream_url)
 
 # Define class names
@@ -179,20 +182,23 @@ thread.start()
 
 def save_detected_video_and_image(detected_type, detected_frame):
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    video_filename = os.path.join(save_directory, f'{detected_type}_{timestamp}.avi')
+    video_filename = os.path.join(save_directory, f'{detected_type}_{timestamp}.mp4')
     image_filename = os.path.join(save_directory, f'{detected_type}_{timestamp}.jpg')
 
     # Save image with annotation
     cv2.imwrite(image_filename, detected_frame)
 
     # Save video 10 seconds before and after detection
-    video_writer = cv2.VideoWriter(video_filename, cv2.VideoWriter_fourcc(*'XVID'), 30, (640, 480))
-    for frame in list(frame_buffer) + [detected_frame] * 300:  # 10 seconds after
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video_writer = cv2.VideoWriter(video_filename, fourcc, 30, (640, 480))
+
+    # Add frames from buffer and 10 seconds after detection
+    frames_to_write = list(frame_buffer) + [detected_frame] * 300
+    for frame in frames_to_write:
         video_writer.write(frame)
     video_writer.release()
 
-
-      # Upload image to S3 and get the URL
+    # Upload image to S3 and get the URL
     image_url = upload_to_s3(image_filename, S3_BUCKET_NAME, os.path.basename(image_filename))
     if image_url:
         print(f"Image uploaded to S3: {image_url}")
@@ -201,7 +207,8 @@ def save_detected_video_and_image(detected_type, detected_frame):
     video_url = upload_to_s3(video_filename, S3_BUCKET_NAME, os.path.basename(video_filename))
     if video_url:
         print(f"Video uploaded to S3: {video_url}")
-        add_analytics(detected_type,image_url,video_url)
+        add_analytics(detected_type, video_url, image_url)
+
 
 def process_frame(frame):
     detection_made = False
@@ -333,6 +340,14 @@ detection_thread = Thread(target=detection_loop)
 detection_thread.daemon = True
 detection_thread.start()
 
+
+
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+
+# Assuming cap is already defined and initialized
+cap = cv2.VideoCapture(0)
+
 @app.route('/api/detections', methods=['GET'])
 def get_detections():
     return jsonify(detection_results)
@@ -342,7 +357,7 @@ def generate_frames():
         success, frame = cap.read()
         if not success:
             break
-        processed_frame = process_frame(frame)
+        processed_frame = process_frame(frame)  # Assuming process_frame is defined
         _, buffer = cv2.imencode('.jpg', processed_frame)
         frame_bytes = buffer.tobytes()
         yield (b'--frame\r\n'
@@ -367,92 +382,48 @@ def index():
 def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-
-@app.route('/get-fire')
-
+@app.route('/get-fire', methods=['GET'])
 def getfire():
     select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = 'fire'"
-    
-    # Execute the select query
     cursor.execute(select_query)
-    
-    # Fetch all rows from the executed query
     records = cursor.fetchall()
-    
-    # Column names
     colnames = [desc[0] for desc in cursor.description]
-    
-    # Convert query results to a list of dictionaries
     result = [dict(zip(colnames, row)) for row in records]
-    
-    # Convert the result to JSON format
-    result_json = json.dumps(result, default=str)
-    
-    print("Query results in JSON format:")
-    print(result_json)
+    return jsonify(result)
 
-   
-    
-
-    return jsonify(result_json)
-
-@app.route('/get-numberplate')
-
+@app.route('/get-numberplate', methods=['GET'])
 def getnumberplate():
     select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = 'number_plate'"
-    
-    # Execute the select query
     cursor.execute(select_query)
-    
-    # Fetch all rows from the executed query
     records = cursor.fetchall()
-    
-    # Column names
     colnames = [desc[0] for desc in cursor.description]
-    
-    # Convert query results to a list of dictionaries
     result = [dict(zip(colnames, row)) for row in records]
-    
-    # Convert the result to JSON format
-    result_json = json.dumps(result, default=str)
-    
-    print("Query results in JSON format:")
-    print(result_json)
+    return jsonify(result)
 
-   
-    
-
-    return jsonify(result_json)
-
-
-@app.route('/get-weapon')
-
-def get_wepon():
+@app.route('/get-weapon', methods=['GET'])
+def get_weapon():
     select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = 'weapon'"
-    
-    # Execute the select query
     cursor.execute(select_query)
-    
-    # Fetch all rows from the executed query
     records = cursor.fetchall()
-    
-    # Column names
     colnames = [desc[0] for desc in cursor.description]
-    
-    # Convert query results to a list of dictionaries
     result = [dict(zip(colnames, row)) for row in records]
-    
-    # Convert the result to JSON format
-    result_json = json.dumps(result, default=str)
-    
-    print("Query results in JSON format:")
-    print(result_json)
+    return jsonify(result)
 
-   
-    
+@app.route('/get-analytics-by/<int:id>', methods=['GET'])
+def get_weapon_by_id(id):
+    select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = 'weapon' AND id = %s"
+    cursor.execute(select_query, (id,))
+    record = cursor.fetchone()
+    if record:
+        colnames = [desc[0] for desc in cursor.description]
+        result = dict(zip(colnames, record))
+        return jsonify(result)
+    else:
+        return jsonify({"error": "Record not found"}), 404
 
-    return jsonify(result_json)
-
+@app.route('/test', methods=['GET', 'POST'])
+def your_endpoint():
+    return 'Hello, World!'
 
 if __name__ == '__main__':
     app.run(debug=True)
