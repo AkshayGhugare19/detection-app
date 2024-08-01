@@ -9,10 +9,11 @@ from threading import Thread
 import math
 from collections import deque
 import os
-from flask import Flask, jsonify,json,Response, render_template_string
+from flask import Flask, jsonify,json,Response, render_template_string, make_response
 import psycopg2
 from psycopg2 import OperationalError, DatabaseError,Error 
 import boto3
+import requests
 from datetime import datetime
 
 from botocore.exceptions import NoCredentialsError
@@ -92,7 +93,8 @@ fire_model = YOLO('fire_model.pt')
 number_plate_model = YOLO('license_plate_detector.pt')
 
 # Initialize video capture
-stream_url = 0
+stream_url = "http://192.168.1.8:8080/video"
+
 cap = cv2.VideoCapture(stream_url)
 
 # Define class names
@@ -329,8 +331,10 @@ def detection_loop():
 
             # Display the frame
             cv2.imshow('frame', processed_frame)
+
+            
             if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+               break
 
             # Save detected video and image
             if detection_made:
@@ -350,40 +354,84 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
 # Assuming cap is already defined and initialized
-cap = cv2.VideoCapture(0)
-
-@app.route('/api/detections', methods=['GET'])
-def get_detections():
-    return jsonify(detection_results)
+stream_url = "http://192.168.1.8:8080/video"
+cap = cv2.VideoCapture(stream_url)
 
 def generate_frames():
+    print("Current cap:", cap)
+    
     while True:
         success, frame = cap.read()
         if not success:
-            break
-        processed_frame = process_frame(frame)  # Assuming process_frame is defined
-        _, buffer = cv2.imencode('.jpg', processed_frame)
+            print("Failed to capture frame")
+            continue
+
+        frame = cv2.resize(frame, (640, 480))
+        
+        # Reset detection flags
+        detection_made = False
+        detected_type = None
+
+        # Weapon detection
+        blob = cv2.dnn.blobFromImage(frame, 1/255.0, (416, 416), [0, 0, 0], 1, crop=False)
+        weapon_model.setInput(blob)
+        outs = weapon_model.forward(get_outputs_names(weapon_model))
+
+        frame_height = frame.shape[0]
+        frame_width = frame.shape[1]
+        class_ids = []
+        confidences = []
+        boxes = []
+        
+        for out in outs:
+            for detection in out:
+                scores = detection[5:]
+                class_id = np.argmax(scores)
+                confidence = scores[class_id]
+                if confidence > 0.5:
+                    detection_made = True
+                    detected_type = 'weapon'
+                    center_x = int(detection[0] * frame_width)
+                    center_y = int(detection[1] * frame_height)
+                    width = int(detection[2] * frame_width)
+                    height = int(detection[3] * frame_height)
+                    left = int(center_x - width / 2)
+                    top = int(center_y - height / 2)
+                    class_ids.append(class_id)
+                    confidences.append(float(confidence))
+                    boxes.append([left, top, width, height])
+
+        if boxes:
+            indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+            for i in indices.flatten():
+                box = boxes[i]
+                left, top, width, height = box
+                draw_pred(weapon_classnames[class_ids[i]], confidences[i], left, top, left + width, top + height, frame)
+
+            detection_results['weapon'].append({
+                'class': weapon_classnames[class_ids[i]],
+                'confidence': confidences[i],
+                'timestamp': time.time()
+            })
+
+        # Encode the frame as JPEG
+        success, buffer = cv2.imencode('.jpg', frame)
+        if not success:
+            print("Failed to encode frame")
+            continue
         frame_bytes = buffer.tobytes()
+        
+        # Yield the frame in multipart format
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
 @app.route('/')
 def index():
-    return render_template_string("""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Video Stream</title>
-    </head>
-    <body>
-        <h1>Video Stream</h1>
-        <img src="{{ url_for('video_feed') }}" style="width: 100%; "/>
-    </body>
-    </html>
-    """)
+    return 'image:<br><img src="/video_feed"/>'
 
 @app.route('/video_feed')
 def video_feed():
+    print("yes call to video feed")
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/get-fire', methods=['GET'])
