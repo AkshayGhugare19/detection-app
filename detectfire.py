@@ -9,11 +9,13 @@ from threading import Thread
 import math
 from collections import deque
 import os
-from flask import Flask, jsonify,json,Response, render_template_string, make_response
+from flask import Flask, jsonify,json,Response, render_template_string, make_response,request
+
 import psycopg2
+from psycopg2.extras import RealDictCursor
+import datetime
 from psycopg2 import OperationalError, DatabaseError,Error 
 import boto3
-import requests
 from datetime import datetime
 
 from botocore.exceptions import NoCredentialsError
@@ -38,18 +40,28 @@ s3_client = boto3.client('s3',
                          aws_access_key_id=AWS_ACCESS_KEY,
                          aws_secret_access_key=AWS_SECRET_KEY)
 def upload_to_s3(file_name, S3_BUCKET_NAME, object_name=None):
+    object_name = object_name or file_name
     try:
-        s3_client.upload_file(file_name, S3_BUCKET_NAME, object_name, ExtraArgs={'ACL': 'public-read'},)
-        # s3_client.upload_file(file_name, bucket, object_name or file_name)
+        # Upload the file to S3
+        s3_client.upload_file(file_name, S3_BUCKET_NAME, object_name, ExtraArgs={'ACL': 'public-read'})
+        
+        # Change the ContentType to video/mp4
+        s3_client.put_object_acl(ACL='public-read', Bucket=S3_BUCKET_NAME, Key=object_name)
+        s3_client.copy_object(Bucket=S3_BUCKET_NAME, CopySource={'Bucket': S3_BUCKET_NAME, 'Key': object_name}, Key=object_name, MetadataDirective='REPLACE', ContentType='video/mp4')
+        
         print(f"Upload Successful: {file_name} to {S3_BUCKET_NAME}")
-        s3_url = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{object_name or file_name}"
-        return s3_url
+        s3_url = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{object_name}"
+        return s3_url 
     except FileNotFoundError:
         print(f"The file was not found: {file_name}")
         return None
     except NoCredentialsError:
         print("Credentials not available")
         return None
+
+# Example usage
+s3_url = upload_to_s3('path_to_your_video.mp4', 'your_s3_bucket_name')
+print(s3_url)
 
 
 
@@ -472,8 +484,8 @@ def send_email(recever_Emails,subject, body, attachment_paths):
 @app.route('/send-mail', methods=['POST'])
 def sendMail():
     print(">>>>>YYY>")
-    data = requests.json
-    print(">>>>>>",data,requests.json)
+    data = request.json
+    print(">>>>>>",data,request.json)
     subject = data.get('subject')
     body = data.get('body')
     recever_Emails = data.get('recever_Emails')
@@ -481,6 +493,45 @@ def sendMail():
 
     send_email(recever_Emails,subject, body, attachment_paths)
     return jsonify({"message": "Email sent successfully"})
+
+
+# POST endpoint to add a new user
+@app.route('/add-user', methods=['POST'])
+def add_user():
+    data = request.get_json()
+    name = data.get('name')
+    phone_number = data.get('phone_number')
+    email = data.get('email')
+
+    # if not name or not phone_number or not email:
+    #     return jsonify({"error": "Missing name, phone_number or email"}), 400
+
+    try:
+        
+        # Create an insert query
+        insert_query = """
+        INSERT INTO users (name, phone_number, email)
+        VALUES (%s, %s, %s)
+        RETURNING id, name, phone_number, email
+        """
+        cursor.execute(insert_query, (name, phone_number, email))
+        new_user = cursor.fetchone()
+        connection.commit()
+        return jsonify(new_user), 201
+    except psycopg2.IntegrityError:
+        connection.rollback()
+        return jsonify({"error": "User with this email already exists"}), 400
+
+# GET endpoint to retrieve all users
+@app.route('/get-user', methods=['GET'])
+def get_users():
+    # Create a select query
+    select_query = "SELECT id, name, phone_number, email FROM users"
+    cursor.execute(select_query)
+    records = cursor.fetchall()
+    colnames = [desc[0] for desc in cursor.description]
+    result = [dict(zip(colnames, row)) for row in records]
+    return jsonify(result), 200
 
 @app.route('/get-fire', methods=['GET'])
 def getfire():
