@@ -538,6 +538,42 @@ def send_notification():
     return jsonify({'message_sids': message_sids}), 200
 
 
+@app.route('/send-perticular-notification-on-whatsapp/<int:id>', methods=['POST'])
+def send_one_notification(id):
+    data = request.json
+    phone_number = data.get('phone_number')
+    message_notification = data.get('message')
+
+    # Query to find analytics by ID
+    select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE id = %s"
+    cursor.execute(select_query, (id,))
+    record = cursor.fetchone()
+    
+    if not record:
+        return jsonify({'error': 'No analytics record found with the given ID'}), 404
+
+    # Extract column names
+    colnames = [desc[0] for desc in cursor.description]
+    result = dict(zip(colnames, record))
+
+    formatted_phone_number = f'whatsapp:+91{phone_number}'
+
+    message_body = f"""
+    Message: {message_notification}
+    Alert Type: {result['type']}
+    Time: {result['created_at']}
+    Image: {result['images']}
+    Video: {result['videos']}
+    """
+    
+    # Send WhatsApp message
+    message = client.messages.create(
+        from_='whatsapp:+14155238886',
+        body=message_body,
+        to=formatted_phone_number
+    )
+
+    return jsonify({'message_sid': message.sid}), 200
     
 # POST endpoint to add a new user
 @app.route('/add-user', methods=['POST'])
