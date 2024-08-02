@@ -465,37 +465,62 @@ EMAIL_HOST_USER = "akshayghugare@sdlccorp.com"
 EMAIL_HOST_PASSWORD = "test"
 # RECEIVER_EMAILS = ['gowox96276@mfunza.com', 'akshayghugare0@gmail.com']  # Add multiple email addresses
 
-def send_email(recever_Emails,subject, body, attachment_paths):
-    msg = EmailMessage()
-    msg['From'] = EMAIL_HOST_USER
-    msg['To'] = ', '.join(recever_Emails)
-    msg['Subject'] = subject
-    msg.set_content(body)
+def send_email(receiver_emails, subject, body, attachments):
+    for attachment in attachments:
+        msg = EmailMessage()
+        msg['From'] = EMAIL_HOST_USER
+        msg['To'] = ', '.join(receiver_emails)
+        msg['Subject'] = subject
 
-    for attachment_path in attachment_paths:
-        with open(attachment_path, 'rb') as f:
-            file_data = f.read()
-            file_name = os.path.basename(attachment_path)
-            msg.add_attachment(file_data, maintype='application', subtype='octet-stream', filename=file_name)
+        html_content = f"""
+        <html>
+            <body>
+                <p>{body}</p>
+                <p><strong>Alert Type:</strong> {attachment['type']}</p>
+                <p><strong>Time:</strong> {attachment['created_at']}</p>
+                <p><strong>Image:</strong></p>
+                <img src="{attachment['images']}" alt="Image" style="max-width:100%; height:auto;">
+                <p><strong>Video:</strong></p>
+                <video width="320" height="240" controls>
+                    <source src="{attachment['videos']}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+            </body>
+        </html>
+        """
 
-    with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as smtp:
-        smtp.starttls()
-        smtp.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
-        smtp.send_message(msg)
+        msg.add_alternative(html_content, subtype='html')
+
+        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as smtp:
+            smtp.starttls()
+            smtp.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
+            smtp.send_message(msg)
 
 @app.route('/send-mail', methods=['POST'])
 def sendMail():
-    print(">>>>>YYY>")
-    data = request.json
-    print(">>>>>>",data,request.json)
-    subject = data.get('subject')
-    body = data.get('body')
-    recever_Emails = data.get('recever_Emails')
-    attachment_paths = data.get('attachment_paths', [])
+    try:
+        data = request.json
+        subject = "Detected analytics"
+        body = data.get('body')
+        receiver_emails = data.get('receiver_emails')
+        mail_type = data.get('type')
 
-    send_email(recever_Emails,subject, body, attachment_paths)
-    return jsonify({"message": "Email sent successfully"})
+        if not receiver_emails or not isinstance(receiver_emails, list):
+            return jsonify({"error": "Invalid receiver_emails. It should be a list of email addresses."}), 400
 
+        select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = %s"
+        cursor.execute(select_query, (mail_type,))
+        records = cursor.fetchall()
+        colnames = [desc[0] for desc in cursor.description]
+        result = [dict(zip(colnames, row)) for row in records]
+
+        if not result:
+            return jsonify({"error": "No records found for the given type."}), 404
+
+        send_email(receiver_emails, subject, body, result)
+        return jsonify({"message": "Emails sent successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Twilio configuration
 
