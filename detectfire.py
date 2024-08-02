@@ -21,12 +21,15 @@ from flask import Flask, jsonify, Response, render_template_string
 from flask_cors import CORS
 import cv2
 import json
+from email.message import EmailMessage
+import smtplib
+
 
 
 # AWS S3 Configuration
 AWS_ACCESS_KEY = 'test'
 AWS_SECRET_KEY = 'test'
-S3_BUCKET_NAME = 'test'
+S3_BUCKET_NAME = 'testdetection'
 
 # Initialize the S3 client
 # s3_client = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY,)
@@ -36,7 +39,7 @@ s3_client = boto3.client('s3',
                          aws_secret_access_key=AWS_SECRET_KEY)
 def upload_to_s3(file_name, S3_BUCKET_NAME, object_name=None):
     try:
-        s3_client.upload_file(file_name, S3_BUCKET_NAME, object_name, ExtraArgs={'ACL': 'public-read'})
+        s3_client.upload_file(file_name, S3_BUCKET_NAME, object_name, ExtraArgs={'ACL': 'public-read'},)
         # s3_client.upload_file(file_name, bucket, object_name or file_name)
         print(f"Upload Successful: {file_name} to {S3_BUCKET_NAME}")
         s3_url = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{object_name or file_name}"
@@ -93,7 +96,8 @@ fire_model = YOLO('fire_model.pt')
 number_plate_model = YOLO('license_plate_detector.pt')
 
 # Initialize video capture
-stream_url = "http://192.168.1.8:8080/video"
+stream_url = 0
+# stream_url="http://192.168.1.8:8080/video"
 
 cap = cv2.VideoCapture(stream_url)
 
@@ -349,13 +353,16 @@ detection_thread.daemon = True
 detection_thread.start()
 
 
+# start api from this
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
 # Assuming cap is already defined and initialized
-stream_url = "http://192.168.1.8:8080/video"
+# stream_url = "http://192.168.1.8:8080/video"
+stream_url = 0
 cap = cv2.VideoCapture(stream_url)
+
 
 def generate_frames():
     print("Current cap:", cap)
@@ -425,6 +432,7 @@ def generate_frames():
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
+
 @app.route('/')
 def index():
     return 'image:<br><img src="/video_feed"/>'
@@ -433,6 +441,46 @@ def index():
 def video_feed():
     print("yes call to video feed")
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+# Email configuration
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = "akshayghugare@sdlccorp.com"
+EMAIL_HOST_PASSWORD = "lhwaoegxcaxvvvla"
+# RECEIVER_EMAILS = ['gowox96276@mfunza.com', 'akshayghugare0@gmail.com']  # Add multiple email addresses
+
+def send_email(recever_Emails,subject, body, attachment_paths):
+    msg = EmailMessage()
+    msg['From'] = EMAIL_HOST_USER
+    msg['To'] = ', '.join(recever_Emails)
+    msg['Subject'] = subject
+    msg.set_content(body)
+
+    for attachment_path in attachment_paths:
+        with open(attachment_path, 'rb') as f:
+            file_data = f.read()
+            file_name = os.path.basename(attachment_path)
+            msg.add_attachment(file_data, maintype='application', subtype='octet-stream', filename=file_name)
+
+    with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as smtp:
+        smtp.starttls()
+        smtp.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
+        smtp.send_message(msg)
+
+@app.route('/send-mail', methods=['POST'])
+def sendMail():
+    print(">>>>>YYY>")
+    data = requests.json
+    print(">>>>>>",data,requests.json)
+    subject = data.get('subject')
+    body = data.get('body')
+    recever_Emails = data.get('recever_Emails')
+    attachment_paths = data.get('attachment_paths', [])
+
+    send_email(recever_Emails,subject, body, attachment_paths)
+    return jsonify({"message": "Email sent successfully"})
 
 @app.route('/get-fire', methods=['GET'])
 def getfire():
