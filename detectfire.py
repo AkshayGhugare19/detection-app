@@ -25,6 +25,8 @@ import cv2
 import json
 from email.message import EmailMessage
 import smtplib
+from twilio.rest import Client
+
 
 
 
@@ -109,7 +111,7 @@ number_plate_model = YOLO('license_plate_detector.pt')
 
 # Initialize video capture
 stream_url = 0
-# stream_url="http://192.168.1.8:8080/video"
+# stream_url="http://192.168.1.78:8080/video"
 
 cap = cv2.VideoCapture(stream_url)
 
@@ -340,7 +342,7 @@ def detection_loop():
 
             # Calculate and Display FPS
             new_frame_time = time.time()
-            fps = 1 / (new_frame_time - prev_frame_time)
+            fps = 40
             prev_frame_time = new_frame_time
             fps = int(fps)
             cv2.putText(processed_frame, f'FPS: {fps}', (7, 70), text_font, 3, (100, 255, 0), 3, cv2.LINE_AA)
@@ -460,7 +462,7 @@ EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = "akshayghugare@sdlccorp.com"
-EMAIL_HOST_PASSWORD = "lhwaoegxcaxvvvla"
+EMAIL_HOST_PASSWORD = "test"
 # RECEIVER_EMAILS = ['gowox96276@mfunza.com', 'akshayghugare0@gmail.com']  # Add multiple email addresses
 
 def send_email(recever_Emails,subject, body, attachment_paths):
@@ -495,6 +497,48 @@ def sendMail():
     return jsonify({"message": "Email sent successfully"})
 
 
+# Twilio configuration
+
+account_sid = 'test'
+auth_token = 'test'
+client = Client(account_sid, auth_token)
+
+#Send notification on whats app
+@app.route('/send-notification-on-whatsapp', methods=['POST'])
+def send_notification():
+    data = request.json
+    phone_number = data.get('phone_number')
+    messageNotification = data.get('message')
+    type = data.get('type')
+
+    select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = %s"
+    cursor.execute(select_query, (type,))
+    records = cursor.fetchall()
+    colnames = [desc[0] for desc in cursor.description]
+    result = [dict(zip(colnames, row)) for row in records]
+
+    formatted_phone_number = f'whatsapp:+91{phone_number}'
+
+    message_sids = []
+    for record in result:
+        message_body = f"""
+        Message: {messageNotification}
+        Alert Type: {record['type']}
+        Time: {record['created_at']}
+        Image: {record['images']}
+        Video: {record['videos']}
+        """
+        message = client.messages.create(
+            from_='whatsapp:+14155238886',
+            body=message_body,
+            to=formatted_phone_number
+        )
+        message_sids.append(message.sid)
+
+    return jsonify({'message_sids': message_sids}), 200
+
+
+    
 # POST endpoint to add a new user
 @app.route('/add-user', methods=['POST'])
 def add_user():
