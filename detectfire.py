@@ -16,8 +16,6 @@ from psycopg2.extras import RealDictCursor
 import datetime
 from psycopg2 import OperationalError, DatabaseError,Error 
 import boto3
-from datetime import datetime
-
 from botocore.exceptions import NoCredentialsError
 from flask import Flask, jsonify, Response, render_template_string
 from flask_cors import CORS
@@ -34,6 +32,19 @@ from twilio.rest import Client
 AWS_ACCESS_KEY = 'test'
 AWS_SECRET_KEY = 'test'
 S3_BUCKET_NAME = 'testdetection'
+
+# Email configuration
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = "akshayghugare@sdlccorp.com"
+EMAIL_HOST_PASSWORD = "test"
+
+# Twilio configuration
+
+account_sid = 'test'
+auth_token = 'test'
+client = Client(account_sid, auth_token)
 
 # Initialize the S3 client
 # s3_client = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY,)
@@ -136,29 +147,152 @@ detection_results = {
     'weapon': []
 }
 
-def add_analytics(type,videofile,imagefile):
-    print("analytics code------")
-    print(type)
-    print(videofile)
-    print(imagefile)
-
-     # Create an insert query
-    insert_query = """
-    INSERT INTO analytics (created_at, images, videos, type)
-    VALUES (%s, %s, %s,%s)
+# Function to send email when live detection is enabled
+def send_email_when_detected(receiver_emails, subject, body, detection_time, detection_type, videofile, imagefile):
+    msg = EmailMessage()
+    msg['From'] = EMAIL_HOST_USER
+    msg['To'] = ', '.join(receiver_emails)
+    msg['Subject'] = subject
+    print(f"okokok{receiver_emails, subject, body, detection_time, detection_type, videofile, imagefile}")
+    html_content = f"""
+    <html>
+        <body>
+            <p>{body}</p>
+            <p><strong>Alert Type:</strong> {detection_type}</p>
+            <p><strong>Time:</strong> {detection_time}</p>
+            <p><strong>Image:</strong></p>
+            <img src="{imagefile}" alt="Image" style="max-width:100%; height:auto;">
+            <p><strong>Video:</strong></p>
+            <video width="320" height="240" controls>
+                <source src="{videofile}" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+        </body>
+    </html>
     """
+    msg.add_alternative(html_content, subtype='html')
+
+    try:
+        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as smtp:
+            smtp.starttls()
+            smtp.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
+            smtp.send_message(msg)
+        print("Emails sent successfully")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+
+# Function to send whats app when live detection is enabled
+def send_whatsapp_notification_when_live(phone_numbers, detection_time, detection_type, videofile, imagefile):
+    print("Whatsapp notification started")
+    messageNotification = "Detected information"
+    type = detection_type
+    video = videofile
+    image = imagefile
+    print(f"DATA Whatsa app::{phone_numbers} {type} {videofile} {imagefile}")
+    message_sids = []
+
+    for phone_number in phone_numbers:
+        formatted_phone_number = f'whatsapp:+91{phone_number}'
+
+        # Prepare message body
+        message_body = f"""
+        Message: {messageNotification}
+        Alert Type: {type}
+        Time: {detection_time}
+        """
+
+        try:
+            # Send image
+            image_message = client.messages.create(
+                from_='whatsapp:+14155238886',
+                body=message_body,
+                media_url=image,
+                to=formatted_phone_number
+            )
+            message_sids.append(image_message.sid)
+            print(f"Image message sent to {formatted_phone_number} with SID: {image_message.sid}")
+
+            # # Send video
+            # video_message = client.messages.create(
+            #     from_='whatsapp:+14155238886',
+            #     body="Here is the video:",
+            #     media_url=video,
+            #     to=formatted_phone_number
+            # )
+            # message_sids.append(video_message.sid)
+            # print(f"Video message sent to {formatted_phone_number} with SID: {video_message.sid}")
+
+        except Exception as e:
+            print(f"Failed to send message to {formatted_phone_number}: {str(e)}")
+
+    return jsonify({'message_sids': message_sids}), 200
+def add_analytics(type, videofile, imagefile):
+    print("analytics code------")
+    print(f"Type: {type}")
+    print(f"Video file: {videofile}")
+    print(f"Image file: {imagefile}")
+    body = "Detected results"
+    subject = "DetectionAlert"
     
-    # Values to be inserted
-    values = (datetime.now(), imagefile, videofile,type)
+    try:
+        # Get all user emails
+        select_user_email_query = "SELECT email FROM users"
+        cursor.execute(select_user_email_query)
+        user_email_records = cursor.fetchall()
+        
+        if not user_email_records:
+            print("No users Email found.")
+            return "No users Email found."
+        
+        # Collect emails into a list
+        receiver_emails = [user[0] for user in user_email_records]
+        print(f"Emails: {receiver_emails}")
 
-    # Execute the insert query
-    cursor.execute(insert_query, values)
+        # Get all user Phone number
+        select_user_phone_umber_query = "SELECT phone_number FROM users"
+        cursor.execute(select_user_phone_umber_query)
+        user_phone_number_records = cursor.fetchall()
+        
+        if not user_phone_number_records:
+            print("No users found.")
+            return "No users found."
+        
+        # Collect emails into a list
+        receiver_phone_numbers = [user[0] for user in user_phone_number_records]
+        print(f"Phone numbers: {receiver_phone_numbers}")
+        
+        # Create an insert query
+        insert_query = """
+        INSERT INTO analytics (created_at, images, videos, type)
+        VALUES (%s, %s, %s, %s)
+        """
+        
+        # Values to be inserted
+        values = (datetime.datetime.now(), imagefile, videofile, type)
+        
+        # Execute the insert query
+        cursor.execute(insert_query, values)
+        print(f"Values inserted: {values}")
+        
+        # Commit the transaction
+        connection.commit()
 
-    # Commit the transaction
-    connection.commit()
-
-    return "ok"
-
+        # Send email to all users when detection is live
+        send_email_when_detected(receiver_emails, subject, body, datetime.datetime.now(), type, videofile, imagefile)
+        print("Emails sent successfully")
+        
+        # Send WhatsApp notification to all users when detection is live
+        send_whatsapp_notification_when_live(receiver_phone_numbers, datetime.datetime.now(), type, videofile, imagefile)
+        print("WhatsApp notifications sent successfully")
+       
+        
+        return "ok"
+    
+    except Exception as e:
+        # Rollback the transaction in case of error
+        connection.rollback()
+        print(f"Error: {str(e)}")
+        return str(e) 
 
 def get_outputs_names(net):
     layers_names = net.getLayerNames()
@@ -457,12 +591,7 @@ def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
-# Email configuration
-EMAIL_HOST = "smtp.gmail.com"
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = "akshayghugare@sdlccorp.com"
-EMAIL_HOST_PASSWORD = "test"
+
 # RECEIVER_EMAILS = ['gowox96276@mfunza.com', 'akshayghugare0@gmail.com']  # Add multiple email addresses
 
 def send_email(receiver_emails, subject, body, attachments):
@@ -496,6 +625,7 @@ def send_email(receiver_emails, subject, body, attachments):
             smtp.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
             smtp.send_message(msg)
 
+
 @app.route('/send-mail', methods=['POST'])
 def sendMail():
     try:
@@ -522,11 +652,7 @@ def sendMail():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Twilio configuration
 
-account_sid = 'test'
-auth_token = 'test'
-client = Client(account_sid, auth_token)
 
 #Send notification on whats app
 @app.route('/send-notification-on-whatsapp', methods=['POST'])
@@ -553,11 +679,17 @@ def send_notification():
         Image: {record['images']}
         Video: {record['videos']}
         """
+        # message = client.messages.create(
+        #     from_='whatsapp:+14155238886',
+        #     body=message_body,
+        #     to=formatted_phone_number
+        # )
         message = client.messages.create(
-            from_='whatsapp:+14155238886',
-            body=message_body,
-            to=formatted_phone_number
-        )
+                from_='whatsapp:+14155238886',
+                body=message_body,
+                media_url={record['images']},
+                to=formatted_phone_number
+            )
         message_sids.append(message.sid)
 
     return jsonify({'message_sids': message_sids}), 200
