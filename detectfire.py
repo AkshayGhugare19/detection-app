@@ -24,6 +24,9 @@ import json
 from email.message import EmailMessage
 import smtplib
 from twilio.rest import Client
+from tempfile import NamedTemporaryFile
+from moviepy.editor import VideoFileClip
+import requests
 
 
 
@@ -137,6 +140,7 @@ number_plate_model.to(device)
 
 # Create directory for saving detected videos and images
 save_directory = 'detectedfile'
+ENCODED_FOLDER="encodedfile"
 os.makedirs(save_directory, exist_ok=True)
 
 app = Flask(__name__)
@@ -326,6 +330,40 @@ thread = Thread(target=read_frame, args=(cap, frame_queue))
 thread.daemon = True
 thread.start()
 
+# change rencoded video 
+def reencode_video(video_url):
+    print("Fetching video from URL:", video_url)
+    if not video_url:
+        return None
+    try:
+        # Fetch the video from the URL
+        response = requests.get(video_url)
+        response.raise_for_status()
+        
+        # Save the video temporarily
+        with NamedTemporaryFile(delete=False, suffix='.mp4') as temp_video:
+            temp_video.write(response.content)
+            temp_video_path = temp_video.name
+
+        original_filename = os.path.basename(temp_video_path)
+        encoded_filename = f'encoded_{os.path.splitext(original_filename)[0]}.mp4'
+        encoded_filepath = os.path.join(ENCODED_FOLDER, encoded_filename)
+
+        # Re-encode the video
+        clip = VideoFileClip(temp_video_path)
+        clip.write_videofile(encoded_filepath, codec='libx264', audio_codec='aac')
+
+        # Clean up the temporary file
+        os.unlink(temp_video_path)
+
+        print("Re-encoded video saved as:", encoded_filename)
+        return encoded_filepath
+    except Exception as e:
+        print("Error during re-encoding:", str(e))
+        return None
+
+
+
 def save_detected_video_and_image(detected_type, detected_frame):
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     video_filename = os.path.join(save_directory, f'{detected_type}_{timestamp}.mp4')
@@ -353,7 +391,15 @@ def save_detected_video_and_image(detected_type, detected_frame):
     video_url = upload_to_s3(video_filename, S3_BUCKET_NAME, os.path.basename(video_filename))
     if video_url:
         print(f"Video uploaded to S3: {video_url}")
-        add_analytics(detected_type, video_url, image_url)
+
+        # Re-encode the video and get the new URL
+        reencoded_video_path = reencode_video(video_url)
+        print(f"Video encoded>>>>{reencoded_video_path}")
+        if reencoded_video_path:
+            reencoded_video_url = upload_to_s3(reencoded_video_path, S3_BUCKET_NAME, os.path.basename(reencoded_video_path))
+            if reencoded_video_url:
+                print(f"Re-encoded video uploaded to S3: {reencoded_video_url}")
+                add_analytics(detected_type, reencoded_video_url, image_url)
 
         
 def process_frame(frame):
@@ -495,7 +541,7 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
 # Assuming cap is already defined and initialized
-# stream_url = "http://192.168.1.8:8080/video"
+# stream_url = "http://192.168.1.78:8080/video"
 stream_url = 0
 cap = cv2.VideoCapture(stream_url)
 
@@ -590,7 +636,7 @@ def send_email(receiver_emails, subject, body, attachments):
         msg['Subject'] = subject
 
         html_content = f"""
-        <html>
+       <html>
             <body>
                 <p>{body}</p>
                 <p><strong>Alert Type:</strong> {attachment['type']}</p>
@@ -598,10 +644,14 @@ def send_email(receiver_emails, subject, body, attachments):
                 <p><strong>Image:</strong></p>
                 <img src="{attachment['images']}" alt="Image" style="max-width:100%; height:auto;">
                 <p><strong>Video:</strong></p>
-                <video width="320" height="240" controls>
-                    <source src="{attachment['videos']}" type="video/mp4">
-                    Your browser does not support the video tag.
-                </video>
+        
+                <!-- Video URL as clickable link -->
+                <p><a href="{attachment['videos']}" target="_blank">Watch the video</a></p>
+        
+                <!-- Optional: Thumbnail image for better presentation -->
+                <a href="{attachment['videos']}" target="_blank" style="display: block; text-align: center;">
+                  <img src="https://via.placeholder.com/320x240.png?text=Watch+Video" alt="Video Thumbnail" style="max-width:100%; height:auto;">
+                </a>
             </body>
         </html>
         """
