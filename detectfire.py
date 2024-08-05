@@ -31,7 +31,7 @@ from twilio.rest import Client
 # AWS S3 Configuration
 AWS_ACCESS_KEY = 'test'
 AWS_SECRET_KEY = 'test'
-S3_BUCKET_NAME = 'testdetection'
+S3_BUCKET_NAME = 'test'
 
 # Email configuration
 EMAIL_HOST = "smtp.gmail.com"
@@ -772,7 +772,7 @@ def get_users():
 
 @app.route('/get-fire', methods=['GET'])
 def getfire():
-    select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = 'fire'"
+    select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = 'fire' ORDER BY created_at DESC"
     cursor.execute(select_query)
     records = cursor.fetchall()
     colnames = [desc[0] for desc in cursor.description]
@@ -781,7 +781,7 @@ def getfire():
 
 @app.route('/get-numberplate', methods=['GET'])
 def getnumberplate():
-    select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = 'number_plate'"
+    select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = 'number_plate' ORDER BY created_at DESC"
     cursor.execute(select_query)
     records = cursor.fetchall()
     colnames = [desc[0] for desc in cursor.description]
@@ -790,7 +790,7 @@ def getnumberplate():
 
 @app.route('/get-weapon', methods=['GET'])
 def get_weapon():
-    select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = 'weapon'"
+    select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE type = 'weapon' ORDER BY created_at DESC"
     cursor.execute(select_query)
     records = cursor.fetchall()
     colnames = [desc[0] for desc in cursor.description]
