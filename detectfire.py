@@ -865,6 +865,41 @@ def get_weapon_by_id(id):
     else:
         return jsonify({"error": "Record not found"}), 404
 
+
+@app.route('/get-dashboard-data', methods=['GET'])
+def get_dashboard_data():
+    # Fetch user data
+    select_users_query = "SELECT id, name, phone_number, email FROM users"
+    cursor.execute(select_users_query)
+    user_records = cursor.fetchall()
+    user_colnames = [desc[0] for desc in cursor.description]
+    users = [dict(zip(user_colnames, row)) for row in user_records]
+    
+    # Fetch analytics data
+    select_analytics_query = "SELECT created_at,images, videos, type, id  FROM analytics"
+    cursor.execute(select_analytics_query)
+    analytics_records = cursor.fetchall()
+    analytics_colnames = [desc[0] for desc in cursor.description]
+    analytics = [dict(zip(analytics_colnames, row)) for row in analytics_records]
+    
+    # Segregate analytics data
+    weapon_data = [data for data in analytics if data['type'] == 'weapon']
+    fire_data = [data for data in analytics if data['type'] == 'fire']
+    number_plate_data = [data for data in analytics if data['type'] == 'number_plate']
+    
+    # Prepare the final result
+    result = {
+        'users': users,
+        'analytics': {
+            'weapon_data': weapon_data,
+            'fire_data': fire_data,
+            'number_plate_data': number_plate_data
+        }
+    }
+    
+    return jsonify(result), 200
+
+
 @app.route('/test', methods=['GET', 'POST'])
 def your_endpoint():
     return 'Hello, World!'
