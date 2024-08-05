@@ -316,7 +316,7 @@ prev_frame_time = 0
 new_frame_time = 0
 
 # Buffer to store frames
-frame_buffer = deque(maxlen=300)  # 10 seconds at 30 fps
+frame_buffer = deque(maxlen=1200)  # 10 seconds at 30 fps
 
 # Function to read frames asynchronously
 def read_frame(cap, frame_queue):
@@ -667,7 +667,7 @@ def send_email(receiver_emails, subject, body, attachments):
             smtp.login(EMAIL_HOST_USER, EMAIL_HOST_PASSWORD)
             smtp.send_message(msg)
 
-
+# send all notification for all users on mail
 @app.route('/send-mail', methods=['POST'])
 def sendMail():
     try:
@@ -694,8 +694,28 @@ def sendMail():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# send perticular notification on mail
+@app.route('/send-particular-notification-on-mail/<int:id>', methods=['POST'])
+def send_one_notification_of_mail(id):
+    data = request.json
+    receiver_emails = data.get('receiver_emails')
+    message_notification = data.get('message')
+    subject="Detected notification"
+    # Query to find analytics by ID
+    select_query = "SELECT id, created_at, images, videos, type FROM analytics WHERE id = %s"
+    cursor.execute(select_query, (id,))
+    record = cursor.fetchone()
+    
+    if not record:
+        return jsonify({'error': 'No analytics record found with the given ID'}), 404
 
+    # Extract column names
+    colnames = [desc[0] for desc in cursor.description]
+    result = dict(zip(colnames, record))
+    send_email(receiver_emails, subject, message_notification, [result])
 
+    return jsonify({'Notification send succsessfully': result}), 200
+  
 #Send notification on whats app
 @app.route('/send-notification-on-whatsapp', methods=['POST'])
 def send_notification():
@@ -730,7 +750,7 @@ def send_notification():
 
     return jsonify({'message_sids': message_sids}), 200
 
-
+# Send perticular ntification on whatsapp
 @app.route('/send-perticular-notification-on-whatsapp/<int:id>', methods=['POST'])
 def send_one_notification(id):
     data = request.json
