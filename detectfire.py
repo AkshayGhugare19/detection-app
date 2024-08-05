@@ -159,20 +159,24 @@ def send_email_when_detected(receiver_emails, subject, body, detection_time, det
     msg['Subject'] = subject
     print(f"okokok{receiver_emails, subject, body, detection_time, detection_type, videofile, imagefile}")
     html_content = f"""
-    <html>
-        <body>
-            <p>{body}</p>
-            <p><strong>Alert Type:</strong> {detection_type}</p>
-            <p><strong>Time:</strong> {detection_time}</p>
-            <p><strong>Image:</strong></p>
-            <img src="{imagefile}" alt="Image" style="max-width:100%; height:auto;">
-            <p><strong>Video:</strong></p>
-            <video width="320" height="240" controls>
-                <source src="{videofile}" type="video/mp4">
-                Your browser does not support the video tag.
-            </video>
-        </body>
-    </html>
+   <html>
+            <body>
+                <p>{body}</p>
+                <p><strong>Alert Type:</strong> {detection_type}</p>
+                <p><strong>Time:</strong> {detection_time}</p>
+                <p><strong>Image:</strong></p>
+                <img src="{imagefile}" alt="Image" style="max-width:100%; height:auto;">
+                <p><strong>Video:</strong></p>
+        
+                <!-- Video URL as clickable link -->
+                <p><a href="{videofile}" target="_blank">Watch the video</a></p>
+        
+                <!-- Optional: Thumbnail image for better presentation -->
+                <a href="{videofile}" target="_blank" style="display: block; text-align: center;">
+                  <img src="https://via.placeholder.com/320x240.png?text=Watch+Video" alt="Video Thumbnail" style="max-width:100%; height:auto;">
+                </a>
+            </body>
+        </html>
     """
     msg.add_alternative(html_content, subtype='html')
 
