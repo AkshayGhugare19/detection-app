@@ -31,7 +31,7 @@ from twilio.rest import Client
 # AWS S3 Configuration
 AWS_ACCESS_KEY = 'test'
 AWS_SECRET_KEY = 'test'
-S3_BUCKET_NAME = 'test'
+S3_BUCKET_NAME = 'testdetection'
 
 # Email configuration
 EMAIL_HOST = "smtp.gmail.com"
@@ -188,44 +188,32 @@ def send_whatsapp_notification_when_live(phone_numbers, detection_time, detectio
     type = detection_type
     video = videofile
     image = imagefile
-    print(f"DATA Whatsa app::{phone_numbers} {type} {videofile} {imagefile}")
+    print(f"DATA WhatsApp::{phone_numbers} {type} {videofile} {imagefile}")
     message_sids = []
 
     for phone_number in phone_numbers:
         formatted_phone_number = f'whatsapp:+91{phone_number}'
 
-        # Prepare message body
         message_body = f"""
         Message: {messageNotification}
         Alert Type: {type}
         Time: {detection_time}
+        Image: {image}
+        Video: {video}
         """
-
         try:
-            # Send image
-            image_message = client.messages.create(
+            message = client.messages.create(
                 from_='whatsapp:+14155238886',
                 body=message_body,
-                media_url=image,
                 to=formatted_phone_number
             )
-            message_sids.append(image_message.sid)
-            print(f"Image message sent to {formatted_phone_number} with SID: {image_message.sid}")
-
-            # # Send video
-            # video_message = client.messages.create(
-            #     from_='whatsapp:+14155238886',
-            #     body="Here is the video:",
-            #     media_url=video,
-            #     to=formatted_phone_number
-            # )
-            # message_sids.append(video_message.sid)
-            # print(f"Video message sent to {formatted_phone_number} with SID: {video_message.sid}")
-
+            message_sids.append(message.sid)
+            print(f"Image message sent to {formatted_phone_number} with SID: {message.sid}")
         except Exception as e:
             print(f"Failed to send message to {formatted_phone_number}: {str(e)}")
 
     return jsonify({'message_sids': message_sids}), 200
+
 def add_analytics(type, videofile, imagefile):
     print("analytics code------")
     print(f"Type: {type}")
@@ -679,17 +667,11 @@ def send_notification():
         Image: {record['images']}
         Video: {record['videos']}
         """
-        # message = client.messages.create(
-        #     from_='whatsapp:+14155238886',
-        #     body=message_body,
-        #     to=formatted_phone_number
-        # )
         message = client.messages.create(
-                from_='whatsapp:+14155238886',
-                body=message_body,
-                media_url={record['images']},
-                to=formatted_phone_number
-            )
+            from_='whatsapp:+14155238886',
+            body=message_body,
+            to=formatted_phone_number
+        )
         message_sids.append(message.sid)
 
     return jsonify({'message_sids': message_sids}), 200
