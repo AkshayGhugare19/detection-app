@@ -27,6 +27,7 @@ from twilio.rest import Client
 from tempfile import NamedTemporaryFile
 from moviepy.editor import VideoFileClip
 import requests
+from flask_bcrypt import Bcrypt
 
 
 
@@ -34,7 +35,7 @@ import requests
 # AWS S3 Configuration
 AWS_ACCESS_KEY = 'test'
 AWS_SECRET_KEY = 'test'
-S3_BUCKET_NAME = 'testdetection'
+S3_BUCKET_NAME = 'test'
 
 # Email configuration
 EMAIL_HOST = "smtp.gmail.com"
@@ -144,6 +145,7 @@ ENCODED_FOLDER="encodedfile"
 os.makedirs(save_directory, exist_ok=True)
 
 app = Flask(__name__)
+bcrypt = Bcrypt(app)
 
 detection_results = {
     'number_plate': [],
@@ -795,19 +797,22 @@ def add_user():
     name = data.get('name')
     phone_number = data.get('phone_number')
     email = data.get('email')
-
+    role = data.get('role')
+    password = data.get('password')
+   
     # if not name or not phone_number or not email:
     #     return jsonify({"error": "Missing name, phone_number or email"}), 400
 
     try:
-        
+        hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+
         # Create an insert query
         insert_query = """
-        INSERT INTO users (name, phone_number, email)
-        VALUES (%s, %s, %s)
-        RETURNING id, name, phone_number, email
+        INSERT INTO users (name, phone_number, email,role,password)
+        VALUES (%s, %s, %s,%s,%s)
+        RETURNING id, name, phone_number, email,role
         """
-        cursor.execute(insert_query, (name, phone_number, email))
+        cursor.execute(insert_query, (name, phone_number, email,role, hashed_password))
         new_user = cursor.fetchone()
         connection.commit()
         return jsonify(new_user), 201
@@ -819,7 +824,7 @@ def add_user():
 @app.route('/get-user', methods=['GET'])
 def get_users():
     # Create a select query
-    select_query = "SELECT id, name, phone_number, email FROM users"
+    select_query = "SELECT id, name, phone_number, email,role FROM users"
     cursor.execute(select_query)
     records = cursor.fetchall()
     colnames = [desc[0] for desc in cursor.description]
@@ -899,7 +904,73 @@ def get_dashboard_data():
     
     return jsonify(result), 200
 
+@app.route('/signup', methods=['POST'])
+def signup():
+    data = request.get_json()
+    name = data.get('name')
+    phone_number = data.get('phone_number')
+    email = data.get('email')
+    password = data.get('password')
+    role = data.get('role')
 
+    if not name or not phone_number or not email or not password or not role:
+        return jsonify({"error": "Missing name, phone_number, email, role, or password"}), 400
+
+    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+
+    try:
+        # Create an insert query
+        insert_query = """
+        INSERT INTO users (name, phone_number, role, email, password)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id, name, phone_number, role, email
+        """
+        cursor.execute(insert_query, (name, phone_number, role, email, hashed_password))
+        new_user = cursor.fetchone()
+        connection.commit()
+        return jsonify(new_user), 201
+    except psycopg2.IntegrityError:
+        connection.rollback()
+        return jsonify({"error": "User with this email or phone number already exists"}), 400
+    except Exception as e:
+        connection.rollback()
+        return jsonify({"error": str(e)}), 500
+    
+    
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+
+    if not email or not password:
+        return jsonify({"error": "Missing email or password"}), 400
+
+    try:
+        # Fetch user from database
+        query = """
+        SELECT id, name, phone_number, email, password
+        FROM users
+        WHERE email = %s
+        """
+        cursor.execute(query, (email,))
+        user = cursor.fetchone()
+
+        if user and bcrypt.check_password_hash(user[4], password):
+            return jsonify({
+                "message": "Login successful",
+                "user": {
+                    "id": user[0],
+                    "name": user[1],
+                    "phone_number": user[2],
+                    "email": user[3]
+                }
+            }), 200
+        else:
+            return jsonify({"error": "Invalid credentials"}), 401
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
 @app.route('/test', methods=['GET', 'POST'])
 def your_endpoint():
     return 'Hello, World!'
